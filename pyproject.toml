@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "governance-evidence-vault"
+version = "0.1.0"
+description = "Tamper-evident governance evidence bundles for AI systems: assemble eval, red-team, fairness, approval and incident artifacts into a signed, hash-chained attestation an external auditor can verify offline."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+
+[project.scripts]
+vault = "govault.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
