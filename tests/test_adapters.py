@@ -25,6 +25,15 @@ from govault.adapters import (AdapterError, read_alert_file, read_audit_jsonl,
                               read_incident_store, read_registry_db)  # noqa: E402
 
 
+FIXTURES = SIB / "ai-incident-runbook" / "examples" / "fixtures"
+
+
+def _require_fixtures():
+    if not (FIXTURES / "disparity-red.json").exists():
+        pytest.skip("sibling checkout ai-incident-runbook not present "
+                    "next to this repo (see README)")
+
+
 def make_pack(tmp_path: Path) -> Path:
     pack = tmp_path / "pack"
     ev = pack / "evidence" / "fairness"
@@ -104,14 +113,16 @@ def test_read_registry_db_not_a_db(tmp_path):
 
 
 def test_read_disparity_alert():
-    p = SIB / "ai-incident-runbook" / "examples" / "fixtures" / "disparity-red.json"
+    _require_fixtures()
+    p = FIXTURES / "disparity-red.json"
     got = read_alert_file(p, "disparity-monitor")
     assert got["summary"]["status"] == "red"
     assert got["source_sha"] == "e5426ff"
 
 
 def test_read_drift_alert():
-    p = SIB / "ai-incident-runbook" / "examples" / "fixtures" / "drift-threshold.json"
+    _require_fixtures()
+    p = FIXTURES / "drift-threshold.json"
     got = read_alert_file(p, "rag-eval-drift")
     assert got["summary"]["rule"] == "threshold"
     assert got["source_sha"] == "836bc85"

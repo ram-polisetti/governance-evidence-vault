@@ -1,6 +1,8 @@
 """End-to-end CLI lifecycle: build -> show -> verify -> tamper -> verify fails."""
 import json
 import sys
+
+import pytest
 from pathlib import Path
 
 SIB = Path(__file__).resolve().parent.parent.parent
