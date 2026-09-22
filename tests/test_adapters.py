@@ -10,7 +10,15 @@ from pathlib import Path
 import pytest
 
 SIB = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(SIB / "model-governance-registry" / "src"))
+MGREG_SRC = SIB / "model-governance-registry" / "src"
+if str(MGREG_SRC) not in sys.path:
+    sys.path.insert(0, str(MGREG_SRC))
+
+
+def _require_mgreg():
+    if not (MGREG_SRC / "mgreg" / "store.py").exists():
+        pytest.skip("sibling checkout model-governance-registry not present "
+                    "next to this repo (see README)")
 
 from govault.adapters import (AdapterError, read_alert_file, read_audit_jsonl,
                               read_conformance_pack, read_eval_report,
@@ -60,6 +68,7 @@ RISK = {"govern": "g", "map": "m", "measure": "m2", "manage": "mg"}
 
 
 def test_read_registry_db(tmp_path):
+    _require_mgreg()
     from mgreg.store import Registry
     db = tmp_path / "reg.sqlite"
     reg = Registry(str(db))
@@ -78,6 +87,7 @@ def test_read_registry_db(tmp_path):
 
 
 def test_read_registry_db_unknown_system(tmp_path):
+    _require_mgreg()
     from mgreg.store import Registry
     db = tmp_path / "reg.sqlite"
     Registry(str(db))

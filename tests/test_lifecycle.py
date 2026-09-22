@@ -4,7 +4,15 @@ import sys
 from pathlib import Path
 
 SIB = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(SIB / "model-governance-registry" / "src"))
+MGREG_SRC = SIB / "model-governance-registry" / "src"
+if str(MGREG_SRC) not in sys.path:
+    sys.path.insert(0, str(MGREG_SRC))
+
+
+def _require_mgreg():
+    if not (MGREG_SRC / "mgreg" / "store.py").exists():
+        pytest.skip("sibling checkout model-governance-registry not present "
+                    "next to this repo (see README)")
 
 from govault.cli import main  # noqa: E402
 
@@ -23,6 +31,7 @@ def _fixtures(tmp_path):
         "recommendation": "conditional", "reasons": ["high-risk tier"],
         "fairness_gate": "pass", "ai_act_tier": "high-risk"}))
     # registry
+    _require_mgreg()
     from mgreg.store import Registry
     db = tmp_path / "reg.sqlite"
     reg = Registry(str(db))
