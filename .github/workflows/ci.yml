@@ -1,0 +1,24 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: governance-evidence-vault
+      # Sibling checkouts the adapter tests read (pinned SHAs, see docs/SOURCES.md)
+      - name: clone sibling repos
+        run: |
+          git clone --quiet https://github.com/ram-polisetti/model-governance-registry
+          git -C model-governance-registry checkout --quiet a8a8a23
+          git clone --quiet https://github.com/ram-polisetti/ai-incident-runbook
+          git -C ai-incident-runbook checkout --quiet 7c28259
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: PYTHONPATH=src python -m pytest tests/ -q
+        working-directory: governance-evidence-vault
