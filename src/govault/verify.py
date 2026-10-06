@@ -63,9 +63,38 @@ def verify_bundle(bundle_dir: Path, key: bytes | None = None) -> dict:
     for entry in entries:
         rel = entry.get("file", "")
         want = entry.get("sha256", "")
-        path = bundle_dir / rel
+        if not isinstance(rel, str) or not rel or Path(rel).is_absolute():
+            check("evidence-path", False, "evidence path must be a non-empty relative path")
+            continue
+        relative = Path(rel)
+        if ".." in relative.parts:
+            check(f"evidence:{rel}", False, "parent traversal is not allowed")
+            continue
+        root = bundle_dir.resolve()
+        path = bundle_dir / relative
+        try:
+            resolved = path.resolve()
+        except (OSError, RuntimeError):
+            check(f"evidence:{rel}", False, "cannot resolve evidence path")
+            continue
+        if not resolved.is_relative_to(root):
+            check(f"evidence:{rel}", False, "evidence path escapes the bundle")
+            continue
+        current = bundle_dir
+        symlink = False
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                symlink = True
+                break
+        if symlink:
+            check(f"evidence:{rel}", False, "symbolic links are not allowed in evidence paths")
+            continue
         if not path.exists():
             check(f"evidence:{rel}", False, "file missing from bundle")
+            continue
+        if not path.is_file():
+            check(f"evidence:{rel}", False, "evidence path is not a regular file")
             continue
         got, size = sha256_file(path)
         if got != want:
