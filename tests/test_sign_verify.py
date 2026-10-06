@@ -115,3 +115,30 @@ def test_verify_rejects_wrong_statement_type(tmp_path):
     (bundle / "attestation.json").write_text(json.dumps(a))
     report = verify_bundle(bundle)
     assert not report["ok"]
+
+
+@pytest.mark.parametrize('relative', ['../outside.txt', '/tmp/outside.txt', '', 42])
+def test_verify_rejects_unsafe_evidence_path(tmp_path, relative):
+    bundle = _write_bundle(tmp_path)
+    a = json.loads((bundle / 'attestation.json').read_text())
+    a['predicate']['evidence'][0]['file'] = relative
+    (bundle / 'attestation.json').write_text(json.dumps(a))
+    assert not verify_bundle(bundle)['ok']
+
+
+def test_verify_rejects_symlink_evidence(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    outside = tmp_path / 'outside.txt'
+    outside.write_bytes(b'abc')
+    evidence = bundle / 'evidence/a/f.txt'
+    evidence.unlink()
+    evidence.symlink_to(outside)
+    assert not verify_bundle(bundle)['ok']
+
+
+def test_verify_rejects_directory_evidence(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    evidence = bundle / 'evidence/a/f.txt'
+    evidence.unlink()
+    evidence.mkdir()
+    assert not verify_bundle(bundle)['ok']
