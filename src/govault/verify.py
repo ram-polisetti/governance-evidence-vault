@@ -13,15 +13,51 @@ Exit codes: 0 = verified, 1 = tamper/mismatch detected.
 from __future__ import annotations
 
 import json
+import hashlib
+import os
+import stat
 from pathlib import Path
 
 from .bundle import PREDICATE_TYPE, STATEMENT_TYPE
-from .hashchain import sha256_file
 from .signing import verify_signature
 
 
 class VerifyError(Exception):
     pass
+
+
+
+def _hash_evidence(root: Path, relative: Path) -> tuple[str, int]:
+    """Walk beneath an open directory, refusing symlinks at every step.
+
+    Hash the opened regular file, never a pathname checked earlier. Platforms
+    without these primitives fail closed instead of using a racy fallback.
+    """
+    if (os.open not in os.supports_dir_fd or not hasattr(os, "O_NOFOLLOW")
+            or not hasattr(os, "O_DIRECTORY")):
+        raise OSError("safe evidence verification is unsupported on this platform")
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptors = []
+    try:
+        descriptors.append(os.open(root, directory_flags))
+        for part in relative.parts[:-1]:
+            descriptors.append(os.open(part, directory_flags,
+                                       dir_fd=descriptors[-1]))
+        fd = os.open(relative.parts[-1],
+                     os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                     dir_fd=descriptors[-1])
+        descriptors.append(fd)
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise ValueError("evidence path is not a regular file")
+        digest = hashlib.sha256()
+        size = 0
+        while chunk := os.read(fd, 65536):
+            digest.update(chunk)
+            size += len(chunk)
+        return digest.hexdigest(), size
+    finally:
+        for descriptor in reversed(descriptors):
+            os.close(descriptor)
 
 
 def verify_bundle(bundle_dir: Path, key: bytes | None = None) -> dict:
@@ -63,11 +99,21 @@ def verify_bundle(bundle_dir: Path, key: bytes | None = None) -> dict:
     for entry in entries:
         rel = entry.get("file", "")
         want = entry.get("sha256", "")
-        path = bundle_dir / rel
-        if not path.exists():
-            check(f"evidence:{rel}", False, "file missing from bundle")
+        if not isinstance(rel, str) or not rel or Path(rel).is_absolute():
+            check("evidence-path", False, "evidence path must be a non-empty relative path")
             continue
-        got, size = sha256_file(path)
+        relative = Path(rel)
+        if ".." in relative.parts:
+            check(f"evidence:{rel}", False, "parent traversal is not allowed")
+            continue
+        if not relative.parts or "\0" in rel:
+            check(f"evidence:{rel}", False, "invalid evidence path")
+            continue
+        try:
+            got, size = _hash_evidence(bundle_dir, relative)
+        except (OSError, ValueError, RuntimeError) as exc:
+            check(f"evidence:{rel}", False, f"cannot safely read evidence: {exc}")
+            continue
         if got != want:
             check(f"evidence:{rel}", False,
                   f"hash mismatch: want {want[:12]}…, got {got[:12]}… "

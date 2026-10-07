@@ -115,3 +115,92 @@ def test_verify_rejects_wrong_statement_type(tmp_path):
     (bundle / "attestation.json").write_text(json.dumps(a))
     report = verify_bundle(bundle)
     assert not report["ok"]
+
+
+@pytest.mark.parametrize('relative', ['../outside.txt', '/tmp/outside.txt', '', 42])
+def test_verify_rejects_unsafe_evidence_path(tmp_path, relative):
+    bundle = _write_bundle(tmp_path)
+    a = json.loads((bundle / 'attestation.json').read_text())
+    a['predicate']['evidence'][0]['file'] = relative
+    (bundle / 'attestation.json').write_text(json.dumps(a))
+    assert not verify_bundle(bundle)['ok']
+
+
+def test_verify_rejects_symlink_evidence(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    outside = tmp_path / 'outside.txt'
+    outside.write_bytes(b'abc')
+    evidence = bundle / 'evidence/a/f.txt'
+    evidence.unlink()
+    evidence.symlink_to(outside)
+    assert not verify_bundle(bundle)['ok']
+
+
+def test_verify_rejects_directory_evidence(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    evidence = bundle / 'evidence/a/f.txt'
+    evidence.unlink()
+    evidence.mkdir()
+    assert not verify_bundle(bundle)['ok']
+
+
+def test_verify_rejects_nul_path_without_aborting(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    att = json.loads((bundle / 'attestation.json').read_text())
+    att['predicate']['evidence'][0]['file'] = 'bad\0path'
+    (bundle / 'attestation.json').write_text(json.dumps(att))
+    assert not verify_bundle(bundle)['ok']
+
+
+def test_verify_rejects_symlink_replacement_at_open(tmp_path, monkeypatch):
+    import govault.verify as verifier
+    bundle = _write_bundle(tmp_path)
+    outside = tmp_path / 'outside.txt'
+    outside.write_bytes(b'abc')
+    evidence = bundle / 'evidence/a/f.txt'
+    original_open = os.open
+
+    def replace_then_open(path, flags, *args, **kwargs):
+        if path == 'f.txt':
+            evidence.unlink()
+            evidence.symlink_to(outside)
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, 'open', replace_then_open)
+    monkeypatch.setattr(os, 'supports_dir_fd', {replace_then_open})
+    assert not verifier.verify_bundle(bundle)['ok']
+
+
+def test_verify_rejects_ancestor_symlink_at_open(tmp_path, monkeypatch):
+    bundle = _write_bundle(tmp_path)
+    outside = tmp_path / 'outside'
+    outside.mkdir()
+    (outside / 'f.txt').write_bytes(b'abc')
+    ancestor = bundle / 'evidence/a'
+    original_open = os.open
+
+    def replace_then_open(path, flags, *args, **kwargs):
+        if path == 'a':
+            ancestor.rename(bundle / 'evidence/original-a')
+            ancestor.symlink_to(outside, target_is_directory=True)
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, 'open', replace_then_open)
+    monkeypatch.setattr(os, 'supports_dir_fd', {replace_then_open})
+    assert not verify_bundle(bundle)['ok']
+
+
+def test_verify_rejects_fifo_without_blocking(tmp_path):
+    bundle = _write_bundle(tmp_path)
+    evidence = bundle / 'evidence/a/f.txt'
+    evidence.unlink()
+    os.mkfifo(evidence)
+    assert not verify_bundle(bundle)['ok']
+
+
+def test_verify_fails_closed_without_safe_open_support(tmp_path, monkeypatch):
+    bundle = _write_bundle(tmp_path)
+    monkeypatch.setattr(os, 'supports_dir_fd', set())
+    report = verify_bundle(bundle)
+    assert not report['ok']
+    assert any('unsupported' in c['detail'] for c in report['checks'])
